@@ -9,6 +9,14 @@ var DeletedUser = Parse.Object.extend("DeletedUser");
 
 var _ = require('underscore');
 
+var config = require('./config.js');
+// require('./linkedin.js');
+// require('./migrations.js');
+// require('./jobs.js');
+// require('./app.js');
+// require('./admin.js');
+// require('./video.js');
+
 
 
 // Configuration

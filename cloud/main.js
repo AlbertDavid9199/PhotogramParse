@@ -9,15 +9,7 @@ var DeletedUser = Parse.Object.extend("DeletedUser");
 
 var _ = require('underscore');
 
-var config = require('./config.js');
-// require('./linkedin.js');
-// require('./migrations.js');
-// require('./jobs.js');
-// require('./app.js');
-// require('./admin.js');
-// require('./video.js');
 
-var Email = require('./email.js');
 
 // Configuration
 
@@ -224,3 +216,267 @@ Parse.Cloud.define('SetPremium', function (request, response) {
 	});
 });
 
+Parse.Cloud.define("CopyFacebookProfile", function (request, response) {
+	// Use the master key to update the potentially restricted properties
+	Parse.Cloud.useMasterKey();
+	var user = request.user;
+	var profileUpdates = { photos: [] };
+	var profile;
+
+	if (Parse.FacebookUtils.isLinked(user)) {
+
+		var fbAuth = user.get('authData').facebook;
+
+		var picUrl = "https://graph.facebook.com/" + fbAuth.id + "/picture?width=500&height=500";
+		var imageRequest = Parse.Cloud.httpRequest({
+			url: picUrl,
+			followRedirects: true
+		});
+
+		var profile = user.get('profile');
+		if (!profile) {
+			response.error('User does not have a profile');
+			return;
+		}
+		var profileRequest = new Parse.Query(Profile).get(profile.id);
+
+		var fbLikesRequest = Parse.Cloud.httpRequest({ url: 'https://graph.facebook.com/me/likes?limit=999&access_token=' + fbAuth.access_token });
+		var fbMeRequest = Parse.Cloud.httpRequest({ url: 'https://graph.facebook.com/me?fields=birthday,first_name,last_name,name,gender,email,hometown&access_token=' + fbAuth.access_token });
+
+		Parse.Promise.when(fbLikesRequest, fbMeRequest).then(function (fbLikesResponse, fbMeResponse) {
+
+			var fbLikesData = fbLikesResponse.data.data;
+			var fbMe = fbMeResponse.data;
+			console.log(JSON.stringify(fbMe));
+			var i;
+			var fbLikes = [];
+
+			for (i = 0; i < fbLikesData.length; i++) {
+				fbLikes.push(fbLikesData[i].id);
+			}profileUpdates.fbLikes = fbLikes;
+
+			var errorCode = _copyFacebookProfile(fbMe, profileUpdates);
+			if (errorCode) {
+				return Parse.Promise.error({ code: errorCode });
+			}
+
+			if (fbMe.email) {
+				// Save this asynchronously
+				// TODO log any errors - should be an error if email exists
+				if (!user.getEmail()) user.save({ 'email': fbMe.email });else user.save({ 'fbEmail': fbMe.email });
+			}
+
+			// Wait for the profile image request to return
+			return imageRequest;
+		}).then(function (httpResponse) {
+			console.log('httpResponse ' + httpResponse);
+			var file = new Parse.File("profile.png", { base64: httpResponse.buffer.toString('base64', 0, httpResponse.buffer.length) });
+			return file.save();
+		}).then(function (file) {
+			// See http://stackoverflow.com/questions/25297590/saving-javascript-object-that-has-an-array-of-parse-files-causes-converting-cir
+			profileUpdates.photos.push({ name: file.name, url: file.url(), __type: 'File' });
+
+			return profileRequest;
+		}).then(function (result) {
+			profile = result;
+			return profile.save(profileUpdates);
+		}).then(function (profile) {
+			response.success(profile);
+		}, function (error) {
+			console.error('Facebook copy error' + JSON.stringify(error));
+			if (profile) {
+				// Try to save the error onto the profile. Ignore success/error
+				var errorMsg = error.code ? error.code : error;
+				profile.save({ error: errorMsg });
+			}
+			if (error.code) response.error(error);else response.error({ code: 'FB_PROFILE_COPY_FAILED', message: 'Error getting Facebook profile', source: error });
+		});
+	} else {
+		response.error('Account is not linked to Facebook');
+	}
+});
+
+/**
+ *
+ * @param fbMe the response from the facebook graph query
+ * @param profileUpdates {IProfile} the change set to update the Profile with
+ * @return an error code, or null if ok
+ * @private
+ */
+function _copyFacebookProfile(fbMe, profileUpdates) {
+	var year, month, day;
+
+	// Validate the Facebook profile data
+	if (!fbMe.first_name && RESTRICT_NAME) {
+		return 'NO_FB_NAME';
+	}
+	if (!fbMe.gender && RESTRICT_GENDER) {
+		return 'NO_FB_GENDER';
+	}
+	// A full birthday is in the format MM/DD/YYYY
+	// Restricted permissions may return only YYYY or MM/DD
+	if (RESTRICT_BIRTHDATE && !fbMe.birthday) {
+		return 'NO_FB_BIRTHDAY';
+	} else if (RESTRICT_BIRTHDATE && fbMe.birthday.length !== 10) {
+		return 'NO_FB_FULL_BIRTHDAY';
+	}
+
+	profileUpdates.name = fbMe.first_name;
+	if (fbMe.gender === 'male') profileUpdates.gender = 'M';else if (fbMe.gender === 'female') profileUpdates.gender = 'F';else profileUpdates.gender = fbMe.gender;
+
+	if (fbMe.birthday && fbMe.birthday.length === 10) {
+		year = parseInt(fbMe.birthday.substring(6, 10), 10);
+		month = parseInt(fbMe.birthday.substring(0, 2), 10) - 1;
+		day = parseInt(fbMe.birthday.substring(3, 5), 10);
+		profileUpdates.birthdate = new Date(year, month, day);
+	} else if (fbMe.birthday) {
+		// if !REQUIRE_FB_BIRTHDAY then store the partial birthday to pre-fill a birthdate selection
+		profileUpdates.fbBirthday = fbMe.birthday;
+	}
+
+	// The user_hometown permission must be requested in the Facebook application settings, and in the facebook login
+	// code in controller-signin for this to be populated
+	if (fbMe.hometown) {
+		profileUpdates.hometown = fbMe.hometown.name;
+	}
+
+	// Check for the minimum age requirement
+	if (MINIMUM_AGE && profileUpdates.birthdate && _calculateAge(profileUpdates.birthdate) < MINIMUM_AGE) return 'MINIMUM_AGE_ERROR';
+
+	return null; // success
+}
+
+/**
+ * A function to reload the profile for a mutual match
+ */
+Parse.Cloud.define("GetProfileForMatch", function (request, response) {
+	var user = request.user;
+	var matchId = request.params.matchId;
+	Parse.Cloud.useMasterKey();
+
+	if (!matchId) {
+		response.error('matchId param not provided');
+		return;
+	}
+
+	// Check the requested profile is a mutual match before returning it
+	if (user.get('matches').indexOf(matchId) < 0) {
+		response.error('Match id:' + matchId + ' is not a mutual match for user ' + user.id);
+		return;
+	}
+
+	var matchQuery = new Parse.Query(Match);
+	matchQuery.include('profile1');
+	matchQuery.include('profile2');
+
+	matchQuery.get(matchId).then(function (match) {
+		if (!match) throw 'Match does not exist with id ' + match;
+
+		if (match.get('state') !== 'M') throw 'Match ' + matchId + ' is not a mutual match';
+
+		// Get the other profile
+		var profile;
+		if (match.get('uid1') === user.id) profile = match.get('profile2');else if (match.get('uid2') === user.id) profile = match.get('profile1');else response.error('User does not belong to match ' + match.id);
+
+		response.success(_processProfile(profile));
+	}).then(null, function (error) {
+		response.error(error);
+	});
+});
+
+/**
+ * Load an array of mutual matches, with their profile, given an array of match ids
+ */
+Parse.Cloud.define("GetMutualMatches", function (request, response) {
+	var user = request.user;
+	var matchIds = request.params.matchIds;
+	// We need to use the master key to load the other users profile, so we will need to check uid1 and uid2 are valid
+	Parse.Cloud.useMasterKey();
+
+	if (!matchIds) {
+		response.error('matchIds param not provided');
+		return;
+	}
+
+	var matchesQuery = new Parse.Query(Match);
+	matchesQuery.include('profile1');
+	matchesQuery.include('profile2');
+	matchesQuery.equalTo('state', 'M');
+	matchesQuery.limit(1000);
+	matchesQuery.containedIn('objectId', matchIds);
+
+	matchesQuery.find().then(function (matches) {
+		var result = [];
+		var profile1, profile2;
+
+		_.each(matches, function (match) {
+			// Clear the current users profile, no need to return that over the network, and clean the Profile
+			if (match.get('uid1') === user.id) {
+				profile2 = match.get('profile2');
+				if (!profile2) return;
+				match.set('profile2', _processProfile(profile2));
+				match.unset('profile1');
+			} else if (match.get('uid2') === user.id) {
+				profile1 = match.get('profile1');
+				if (!profile1) return;
+				match.set('profile1', _processProfile(profile1));
+				match.unset('profile2');
+			} else {
+				console.error('Attempted to load match ' + match.id + ' which did not belong to user ' + user.id);
+				return;
+			}
+
+			// See http://stackoverflow.com/questions/24959798/parse-com-cloud-function-manually-modify-object-fields-before-sending-to-clien
+			match.dirty = function () {
+				return false;
+			};
+
+			result.push(match);
+		});
+		response.success(result);
+	}).then(null, function (error) {
+		response.error(error);
+	});
+});
+
+///**
+// * Load a mutual match and its profile. e.g. when get a match push notification
+// */
+//Parse.Cloud.define("GetMutualMatch", function(request, response) {
+//	var user = request.user
+//	var matchId = request.params.matchId
+//	// We need to use the master key to load the other users profile, so we need to check uid1 and uid2
+//	Parse.Cloud.useMasterKey()
+//	if(!matchId) {
+//		response.error('matchId param not provided')
+//		return
+//	}
+//
+//	var matchQuery = new Parse.Query(Match)
+//	matchQuery.include('profile1')
+//	matchQuery.include('profile2')
+//
+//	matchQuery.get(matchId).then(function(match) {
+//		if(!match)
+//			throw 'Match does not exist with id ' + match
+//
+//		if(match.get('state') !== 'M')
+//			throw 'Match ' + matchId + ' is not a mutual match'
+//
+//		// Clear the current users profile, no need to return that over the network
+//		if(match.get('uid1') === user.id)
+//			match.unset('profile1')
+//		else if(match.get('uid2') === user.id)
+//			match.set('profile2', null)
+//		else {
+//			response.error('Invalid match, not for this user')
+//			return
+//		}
+//		// TODO convert profile birthdate to age
+//
+//		response.success(match)
+//
+//	}).then(null, function(error) {
+//		response.error(error)
+//	})
+//})

@@ -1,4 +1,3 @@
-"use strict";
 
 // Remember the cloud code doesn't have the angular enhancement, so you will need to use the standard Parse API
 // i.e. object.get('property') object.set('property', value)
@@ -12,12 +11,12 @@ var DeletedUser = Parse.Object.extend("DeletedUser");
 var _ = require('underscore');
 
 var config = require('./config.js');
-require('./linkedin.js');
-require('./migrations.js');
-require('./jobs.js');
-require('./app.js');
-require('./admin.js');
-require('./video.js');
+// require('./linkedin.js');
+// require('./migrations.js');
+// require('./jobs.js');
+// require('./app.js');
+// require('./admin.js');
+// require('./video.js');
 
 var Email = require('./email.js');
 

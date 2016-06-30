@@ -1,4 +1,3 @@
-'use strict';
 
 /**
  * Module for sending email which uses the Mailgun implementation

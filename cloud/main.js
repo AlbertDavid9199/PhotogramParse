@@ -10,13 +10,6 @@ var DeletedUser = Parse.Object.extend("DeletedUser");
 var _ = require('underscore');
 
 var config = require('./config.js');
-require('./inkedin.js');
-require('./migrations.js');
-require('./jobs.js');
-require('./app.js');
-require('./admin.js');
-require('./video.js');
-
 var Email = require('./email.js');
 
 // Configuration
@@ -435,7 +428,7 @@ Parse.Cloud.define("GetProfileForMatch", function(request, response) {
 
 	}).then(null, function(error) {
 		response.error(error);
-	})
+	});
 });
 
 
@@ -483,7 +476,7 @@ Parse.Cloud.define("GetMutualMatches", function(request, response) {
 			}
 
 			// See http://stackoverflow.com/questions/24959798/parse-com-cloud-function-manually-modify-object-fields-before-sending-to-clien
-			match.dirty = function() { return false; }
+			match.dirty = function() { return false; };
 
 			result.push(match);
 
@@ -491,8 +484,8 @@ Parse.Cloud.define("GetMutualMatches", function(request, response) {
 		response.success(result);
 	}).then(null, function(error) {
 		response.error(error);
-	})
-})
+	});
+});
 
 ///**
 // * Load a mutual match and its profile. e.g. when get a match push notification
@@ -568,7 +561,7 @@ function _processProfile(profile) {
 	profile.unset('error');
 
 	// See http://stackoverflow.com/questions/24959798/parse-com-cloud-function-manually-modify-object-fields-before-sending-to-clien
-	profile.dirty = function() { return false; }
+	profile.dirty = function() { return false; };
 
 	return profile;
 }
@@ -829,7 +822,7 @@ Parse.Cloud.define("ProcessMatch", function(request, response) {
 		}, {
 			success: function() { response.success(match); },
 			error: function(error) { response.error(error); }
-		})
+		});
 
 	}, function(error) {
 		response.error(error);
@@ -920,7 +913,7 @@ Parse.Cloud.define("RemoveMatch", function(request, response) {
 		response.success();
 	}, function(error){
 		response.error(error);
-	})
+	});
 });
 
 
@@ -1121,15 +1114,15 @@ Parse.Cloud.define('DeleteUnmatched', function(request, response) {
 		response.success('found ' + count + ' rejected matches to delete');
 	}, function(error) {
 		response.error(error);
-	})
-})
+	});
+});
 
 
 /** Delete the current user account */
 Parse.Cloud.define('DeleteAccount', function(request, response) {
 	Parse.Cloud.useMasterKey();
 	deleteUser(response, request.user);
-})
+});
 
 /** Delete the account for a particular user. Admin only function */
 Parse.Cloud.define('DeleteUser', function(request, response) {
@@ -1144,8 +1137,8 @@ Parse.Cloud.define('DeleteUser', function(request, response) {
 		deleteUser(response, user);
 	}, function(error) {
 		response.error(error);
-	})
-})
+	});
+});
 
 function deleteUser(response, user) {
 	var userId = user.id;
@@ -1164,7 +1157,7 @@ function deleteUser(response, user) {
 		}, {
 			success: function () {},
 			error: function (error) { console.error('Error sending push notification for unmatching a deleted account. ' + JSON.stringify(error)); }
-		})
+		});
 	}
 
 	user.set('status', 'deleting');
@@ -1234,25 +1227,25 @@ Parse.Cloud.define("DeleteAllData", function(request, response) {
 		response.error('Cannot delete data. Application Id does not match integration app Id');
 		return;
 	}
-	Parse.Cloud.useMasterKey()
+	Parse.Cloud.useMasterKey();
 
 	return new Parse.Query(Profile).limit(1000)
-		.find(function(profiles) {return Parse.Object.destroyAll(profiles)})
+		.find(function(profiles) {return Parse.Object.destroyAll(profiles);})
 
-		.then(function() {return new Parse.Query(Match).limit(1000).find()})
-		.then(function(matches) {return Parse.Object.destroyAll(matches)})
+		.then(function() {return new Parse.Query(Match).limit(1000).find();})
+		.then(function(matches) {return Parse.Object.destroyAll(matches);})
 
-		.then(function() {return new Parse.Query(ChatMessage).limit(1000).find()})
-		.then(function(messages) {return Parse.Object.destroyAll(messages)})
+		.then(function() {return new Parse.Query(ChatMessage).limit(1000).find();})
+		.then(function(messages) {return Parse.Object.destroyAll(messages);})
 
-		.then(function() {return new Parse.Query(Report).limit(1000).find()})
-		.then(function(reports) {return Parse.Object.destroyAll(reports)})
+		.then(function() {return new Parse.Query(Report).limit(1000).find();})
+		.then(function(reports) {return Parse.Object.destroyAll(reports);})
 
-		.then(function() {return new Parse.Query(Parse.User).limit(1000).find()})
-		.then(function(users) {return Parse.Object.destroyAll(users)})
+		.then(function() {return new Parse.Query(Parse.User).limit(1000).find();})
+		.then(function(users) {return Parse.Object.destroyAll(users);})
 
-		.then(function() { response.success('Database truncated') },
-		function(error) { response.error(error) });
+		.then(function() { response.success('Database truncated'); },
+		function(error) { response.error(error); });
 });
 
 

@@ -15,7 +15,7 @@ require('./linkedin.js');
 // require('./jobs.js');
 // require('./app.js');
 require('./admin.js');
-// require('./video.js');
+require('./video.js');
 
 var Email = require('./email.js');
 

@@ -9,10 +9,18 @@
   },
   "license": "MIT",
   "dependencies": {
+    "asn1js": "^1.2.12",
+    "buffer": "^4.7.0",
+    "cors": "^2.7.1",
     "express": "~4.11.x",
+    "inherit": "^2.2.3",
     "kerberos": "~0.0.x",
+    "mailgun-js": "^0.7.11",
     "parse": "~1.8.0",
-    "parse-server": "~2.2.12"
+    "parse-server": "~2.2.12",
+    "path": "^0.12.7",
+    "underscore": "^1.8.3",
+    "vm2": "^3.0.0"
   },
   "scripts": {
     "start": "node index.js"

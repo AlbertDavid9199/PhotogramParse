@@ -9,15 +9,15 @@ var DeletedUser = Parse.Object.extend("DeletedUser")
 
 var _ = require('underscore')
 
-var config = require('./config.js')
-require('./inkedin.js')
-require('./migrations.js')
-require('./jobs.js')
-require('./app.js')
-require('./admin.js')
-require('./video.js')
+var config = require('cloud/config.js')
+require('cloud/linkedin.js')
+require('cloud/migrations.js')
+require('cloud/jobs.js')
+require('cloud/app.js')
+require('cloud/admin.js')
+require('cloud/video.js')
 
-var Email = require('./email.js')
+var Email = require('cloud/email.js')
 
 // Configuration
 

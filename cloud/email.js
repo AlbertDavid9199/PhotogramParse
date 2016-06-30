@@ -1,7 +1,7 @@
 /**
  * Module for sending email which uses the Mailgun implementation
  */
-var config = require('./config.js')
+var config = require('cloud/config.js')
 var Mailgun = require('mailgun')
 
 var exports = module.exports = {}

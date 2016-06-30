@@ -10,7 +10,7 @@ var DeletedUser = Parse.Object.extend("DeletedUser")
 var _ = require('underscore')
 
 var config = require('./config.js')
-require('l./inkedin.js')
+require('./inkedin.js')
 require('./migrations.js')
 require('./jobs.js')
 require('./app.js')

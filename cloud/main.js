@@ -15,9 +15,9 @@ require('./linkedin.js');
 // require('./jobs.js');
 // require('./app.js');
 require('./admin.js');
-require('./video.js');
+// require('./video.js');
 
-// var Email = require('./email.js');
+var Email = require('./email.js');
 
 // Configuration
 
@@ -980,9 +980,9 @@ Parse.Cloud.afterSave("ContactMessage", function (request) {
 	var user = request.user;
 	var message = 'New contact message from user ' + user.id + '\n\n' + request.object.get('message');
 
-	// Email.sendAdminEmail('Contact Message', message).then(function (result) {}, function (error) {
-	// 	console.error('Error sending contact message email: ' + error);
-	// });
+	Email.sendAdminEmail('Contact Message', message).then(function (result) {}, function (error) {
+		console.error('Error sending contact message email: ' + error);
+	});
 });
 
 /**

@@ -1,4 +1,3 @@
-
 // Remember the cloud code doesn't have the angular enhancement, so you will need to use the standard Parse API
 // i.e. object.get('property') object.set('property', value)
 
@@ -736,8 +735,7 @@ Parse.Cloud.define("ProcessMatch", function (request, response) {
 		console.log('saved match ' + JSON.stringify(match));
 		return mutualMatch ? new Parse.Query(Parse.User).get(otherUserId) : null;
 	}).then(function (otherUser) {
-		if (!mutualMatch || !otherUser) ;
-		return null;
+		if (!mutualMatch || !otherUser) return null;
 
 		// Add the match id to both users 'matches' property
 		request.user.addUnique('matches', match.id);

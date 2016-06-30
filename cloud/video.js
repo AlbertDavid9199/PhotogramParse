@@ -1,5 +1,5 @@
-var Config = require('config.js')
-var AccessToken = require('AccessToken.js')
+var Config = require('./config.js')
+var AccessToken = require('./AccessToken.js')
 var ConversationsGrant = AccessToken.ConversationsGrant
 
 Parse.Cloud.define('GetTwilioToken', function (request, response) {

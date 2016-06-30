@@ -1,5 +1,5 @@
 var _ = require('underscore')
-var config = require('cloud/config.js')
+var config = require('./config.js')
 
 var LinkedInLink = Parse.Object.extend('LinkedInLink')
 var Profile = Parse.Object.extend('Profile')

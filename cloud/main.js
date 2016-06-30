@@ -12,9 +12,9 @@ var _ = require('underscore');
 var config = require('./config.js');
 require('./linkedin.js');
 // require('./migrations.js');
-require('./jobs.js');
+// require('./jobs.js');
 // require('./app.js');
-// require('./admin.js');
+require('./admin.js');
 // require('./video.js');
 
 // var Email = require('./email.js');

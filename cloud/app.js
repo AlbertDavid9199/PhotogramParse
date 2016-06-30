@@ -1,5 +1,5 @@
-// These two lines are required to initialize Express in Cloud Code.
 
+// These two lines are required to initialize Express in Cloud Code.
 express = require('express');
 app = express();
 

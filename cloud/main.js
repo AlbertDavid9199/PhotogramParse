@@ -204,3 +204,127 @@ Parse.Cloud.beforeSave(Profile, function(request, response) {
 	response.success();
 });
 
+
+Parse.Cloud.define('SetPremium', function(request, response) {
+
+	// Use the master key to update the restricted premium property
+	Parse.Cloud.useMasterKey();
+	var premium = request.params.premium;
+	var product = request.params.product;
+
+	if(_.isUndefined(premium))
+		return response.error('Parameter "premium" was not provided');
+	if(premium && _.isUndefined(product))
+		return response.error('Parameter "product" must be provided if settings premium to true');
+
+	// TODO server-side verification
+	// Use http://reeceipt.fovea.cc/ when its ready or make https://github.com/voltrue2/in-app-purchase Parse friendly
+
+	var user = request.user;
+	user.set('premium', premium);
+	user.save().then(function() {
+		response.success();
+	}, function(error) {
+		response.error(error);
+	});
+});
+
+
+
+
+
+
+
+Parse.Cloud.define("CopyFacebookProfile", function(request, response) {
+	// Use the master key to update the potentially restricted properties
+	Parse.Cloud.useMasterKey();
+	var user = request.user;
+	var profileUpdates = {photos:[]};
+	var profile;
+
+	if (Parse.FacebookUtils.isLinked(user)) {
+
+		var fbAuth = user.get('authData').facebook;
+
+		var picUrl = "https://graph.facebook.com/" + fbAuth.id + "/picture?width=500&height=500";
+		var imageRequest = Parse.Cloud.httpRequest({
+			url: picUrl,
+			followRedirects: true
+		});
+
+		var profile = user.get('profile');
+		if(!profile) {
+			response.error('User does not have a profile');
+			return;
+		}
+		var profileRequest = new Parse.Query(Profile).get(profile.id);
+
+		var fbLikesRequest = Parse.Cloud.httpRequest({url: 'https://graph.facebook.com/me/likes?limit=999&access_token=' + fbAuth.access_token});
+		var fbMeRequest = Parse.Cloud.httpRequest({url: 'https://graph.facebook.com/me?fields=birthday,first_name,last_name,name,gender,email,hometown&access_token=' + fbAuth.access_token});
+
+		Parse.Promise.when(fbLikesRequest, fbMeRequest)
+			.then(function(fbLikesResponse, fbMeResponse) {
+
+				var fbLikesData = fbLikesResponse.data.data;
+				var fbMe = fbMeResponse.data;
+				console.log(JSON.stringify(fbMe));
+				var i;
+				var fbLikes = [];
+
+				for(i=0; i < fbLikesData.length; i++)
+					fbLikes.push(fbLikesData[i].id);
+
+				profileUpdates.fbLikes = fbLikes;
+
+				var errorCode = _copyFacebookProfile(fbMe, profileUpdates);
+				if(errorCode) {
+					return Parse.Promise.error({code:errorCode});
+				}
+
+				if(fbMe.email) {
+					// Save this asynchronously
+					// TODO log any errors - should be an error if email exists
+					if(!user.getEmail())
+						user.save({'email':fbMe.email});
+					else
+						user.save({'fbEmail':fbMe.email});
+				}
+
+				// Wait for the profile image request to return
+				return imageRequest;
+
+			}).then(function(httpResponse) {
+				console.log('httpResponse ' + httpResponse);
+				var file = new Parse.File("profile.png", {base64: httpResponse.buffer.toString('base64', 0, httpResponse.buffer.length)});
+				return file.save();
+
+			}).then(function(file) {
+				// See http://stackoverflow.com/questions/25297590/saving-javascript-object-that-has-an-array-of-parse-files-causes-converting-cir
+				profileUpdates.photos.push({name: file.name, url: file.url(), __type: 'File'});
+
+				return profileRequest;
+
+			}).then(function(result) {
+				profile = result;
+				return profile.save(profileUpdates);
+
+			}).then(function(profile) {
+				response.success(profile);
+			}, function(error) {
+				console.error('Facebook copy error' + JSON.stringify(error));
+				if(profile) {
+					// Try to save the error onto the profile. Ignore success/error
+					var errorMsg = error.code ? error.code : error;
+					profile.save({error:errorMsg});
+				}
+				if(error.code)
+					response.error(error);
+				else
+					response.error({code:'FB_PROFILE_COPY_FAILED', message:'Error getting Facebook profile', source:error});
+			})
+
+	} else {
+		response.error('Account is not linked to Facebook');
+	}
+
+});

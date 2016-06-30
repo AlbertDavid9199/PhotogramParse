@@ -81,3 +81,137 @@ Parse.Cloud.define('PostLogin', function (request, response) {
 	response.success("");
 });
 
+Parse.Cloud.beforeSave(Profile, function (request, response) {
+	var profile = request.object;
+	var userId;
+
+	// If we have strict controls on certain fields then don't let a custom client update them
+	if (!request.master) {
+		if (RESTRICT_BIRTHDATE && profile.dirty('birthdate')) {
+			response.error('Cannot update birthdate');
+			return;
+		}
+		if (RESTRICT_NAME && profile.dirty('name')) {
+			response.error('Cannot update name');
+			return;
+		}
+		if (RESTRICT_GENDER && profile.dirty('gender')) {
+			response.error('Cannot update gender');
+			return;
+		}
+		// An example if you wanted to limit the number of times a user can update their birthday
+		/*
+  var bdayCount = request.user.get('birthdayUpdateCount')
+  if(!_.isNumber(bdayCount)) bdayCount = 0
+  if(profile.dirty('birthdate') && bdayCount >= 2) {
+     response.error('Cannot update birthdate more than 2 times')
+     return
+  }
+  */
+	}
+
+	if (!profile.id) {
+		// Creating a new Profile object
+		// request.user can be null (either from a brand new user or using master key)
+		userId = request.user ? request.user.id : profile.get('uid');
+		if (!userId) {
+			response.error('Could not determine user Id for new profile');
+			return;
+		}
+
+		profile.set('photos', []);
+		profile.set('enabled', false);
+		profile.set('gps', true);
+		profile.set('about', '');
+		profile.set('distance', 25);
+		profile.set('distanceType', 'km');
+		profile.set('notifyMatch', true);
+		profile.set('notifyMessage', true);
+
+		var acl = new Parse.ACL(userId);
+		acl.setPublicWriteAccess(false);
+		acl.setPublicReadAccess(false);
+		acl.setWriteAccess(userId, true);
+		acl.setReadAccess(userId, true);
+		profile.setACL(acl);
+	} else {
+		// Saving an existing Profile
+
+		if (profile.dirty('birthdate')) {
+			var birthdate = profile.get('birthdate'),
+			    ageFrom = profile.get('ageFrom'),
+			    ageTo = profile.get('ageTo');
+			if (birthdate) {
+				var age = _calculateAge(birthdate);
+				if (!ageFrom) {
+					ageFrom = age - 5;
+					if (ageFrom < 18) ageFrom = 18;
+					profile.set('ageFrom', ageFrom);
+				}
+				if (!ageTo) {
+					ageTo = age + 5;
+					if (ageTo > 55) ageTo = 55;
+					profile.set('ageTo', ageTo);
+				}
+			}
+		}
+		if (profile.dirty('gender')) {
+			var gender = profile.get('gender');
+			if (!profile.has('guys')) profile.set('guys', gender !== 'M');
+			if (!profile.has('girls')) profile.set('girls', gender !== 'F');
+		}
+
+		/*
+  //This is only required if you have users with an older version using old data model with photo1, photo2, photo3
+  	var photo1 = profile.get('photo1')
+  var photo2 = profile.get('photo2')
+  var photo3 = profile.get('photo3')
+  	// If doing an update of the old model, then update the new model
+  if(request.photo1 || request.photo2 || request.photo3) {
+  	var photos = []
+  	// check !== null in case the user is deleting it
+  	if(photo1 || (request.photo1 && request.photo1 !== null))
+  		photos.push(photo1)
+  	if(photo2 || (request.photo2 && request.photo2 !== null))
+  		photos.push(photo2)
+  	if(photo3 || (request.photo3 && request.photo3 !== null))
+  		photos.push(photo3)
+  }
+  	// If doing an update of the new model, then update the old model
+  if(request.photos) {
+  	var i
+  	for(i = 0; i < 3; i++) {
+  		if(i < request.photos.length)
+  			profile.set('photo' + (i+1), request.photos[i])
+  		else
+  			profile.set('photo' + (i+1), null)
+  	}
+  }
+  */
+	}
+
+	response.success();
+});
+
+Parse.Cloud.define('SetPremium', function (request, response) {
+
+	// Use the master key to update the restricted premium property
+	Parse.Cloud.useMasterKey();
+	var premium = request.params.premium;
+	var product = request.params.product;
+
+	if (_.isUndefined(premium)) return response.error('Parameter "premium" was not provided');
+	if (premium && _.isUndefined(product)) return response.error('Parameter "product" must be provided if settings premium to true');
+
+	// TODO server-side verification
+	// Use http://reeceipt.fovea.cc/ when its ready or make https://github.com/voltrue2/in-app-purchase Parse friendly
+
+	var user = request.user;
+	user.set('premium', premium);
+	user.save().then(function () {
+		response.success();
+	}, function (error) {
+		response.error(error);
+	});
+});
+

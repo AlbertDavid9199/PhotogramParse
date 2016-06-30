@@ -1,4 +1,3 @@
-'use strict';
 
 // This is the application Id for the Parse application you have setup for integration tests
 // Settings this will enable certain cloud functions, such as deleting all the data in the database

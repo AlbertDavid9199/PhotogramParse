@@ -1,0 +1,66 @@
+{
+  "appName": "Pandasphere",
+  "appId": "PandaID",
+  "masterKey": "PandaMasterKey",
+  "parseMount": "/parse/",
+
+  "gcpBrowserKey": "",
+  "gcpServerKey": "",
+
+  "environments": ["dev", "qa", "prod"],
+
+  "dev": {
+    "serverUrl": "http://pandasphere.herokuapp.com",
+    "databaseURI": "mongodb://localhost:27017/mydb"
+  },
+
+  "prod": {
+    "serverUrl": "",
+    "databaseURI": "",
+    "gcpProjectId": "",
+    "gcpProjectNumber": "",
+    "gcpKeyFile": ""
+  },
+
+  "qa": {
+    "serverUrl": "",
+    "databaseURI": "",
+    "gcpProjectId": "",
+    "gcpProjectNumber": "",
+    "gcpKeyFile": ""
+  },
+
+  "playStoreUrl": "",
+  "itunesUrl": "",
+
+  "facebookAppId": "",
+  "facebookAppName": "",
+  "linkedInId": "",
+  "linkedInSecret": "",
+
+  "socialShareMessage": "",
+
+  "adMob": {
+    "android": {
+      "banner": "",
+      "interstitial": ""
+    },
+    "ios": {
+      "banner": "",
+      "interstitial": ""
+    }
+  },
+
+  "mailgun": {
+    "domain": "",
+    "key": "",
+    "from": ""
+  },
+
+  "twilio": {
+    "account_sid": "",
+    "api_key": "",
+    "api_secret": "",
+    "configuration_sid": ""
+  }
+}

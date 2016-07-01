@@ -1,31 +1,31 @@
 {
-  "name": "parse-server-example",
-  "version": "1.4.0",
-  "description": "An example Parse API server using the parse-server module",
+  "name": "my-app-name",
+  "version": "1.0.0",
+  "description": "My app does this",
+  "private": true,
   "main": "index.js",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/ParsePlatform/parse-server-example"
-  },
-  "license": "MIT",
+  "license": "MIT and commerical",
   "dependencies": {
-    "asn1js": "^1.2.12",
-    "body-parser": "^1.15.2",
-    "buffer": "^4.7.0",
-    "cors": "^2.7.1",
+    "body-parser": "1.15.1",
     "express": "~4.11.x",
-    "inherit": "^2.2.3",
+    "jsonfile": "^2.3.0",
     "kerberos": "~0.0.x",
-    "kue": "^0.11.1",
-    "mailgun": "^0.5.0",
+    "mailgun-js": "0.7.11",
+    "mongodb": "^2.1.19",
     "parse": "~1.8.0",
-    "parse-server": "~2.2.14",
-    "path": "^0.12.7",
-    "underscore": "^1.8.3",
-    "vm2": "^3.0.0"
+    "parse-server": "2.2.12",
+    "parse-server-gcs-adapter": "^1.0.0",
+    "underscore": "1.8.3"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "monitor": "nodemon index.js",
+    "installglobals": "npm i -g bower gulp cordova ionic tsd@next karma-cli protractor node-gyp coffee-script js-beautify typescript npm-check parse-dashboard mongodb-runner playup json browser-sync@2.12.12",
+    "deploy-qa": "cp app-qa.yaml app.yaml && gcloud preview app deploy --stop-previous-version --project $(json -f config.json qa.gcpProjectId)",
+    "deploy-prod": "cp app-prod.yaml app.yaml && gcloud preview app deploy --stop-previous-version --project $(json -f config.json prod.gcpProjectId)",
+    "dashboard-dev": "parse-dashboard --serverURL \"$(json -f config.json dev.serverUrl)$(json -f config.json parseMount)\" --appId $(json -f config.json appId) --masterKey $(json -f config.json masterKey)",
+    "dashboard-qa": "parse-dashboard --serverURL \"$(json -f config.json qa.serverUrl)$(json -f config.json parseMount)\" --appId $(json -f config.json appId) --masterKey $(json -f config.json masterKey)",
+    "dashboard-prod": "parse-dashboard --serverURL \"$(json -f config.json prod.serverUrl)$(json -f config.json parseMount)\" --appId $(json -f config.json appId) --masterKey $(json -f config.json masterKey)"
   },
   "engines": {
     "node": ">=4.3"

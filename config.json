@@ -1,11 +1,11 @@
 {
-  "appName": "Pandasphere",
+  "appName": "Phandasphere",
   "appId": "PandaID",
   "masterKey": "PandaMasterKey",
   "parseMount": "/parse/",
 
-  "gcpBrowserKey": "",
-  "gcpServerKey": "",
+  "gcpBrowserKey": "AIzaSyCu7lXkLgYIeAAXUhsnOyea7bv9UL_AbqA",
+  "gcpServerKey": "AIzaSyB-F1isIvQW1zJlF2rTrqJHrripfMhvxuw",
 
   "environments": ["dev", "qa", "prod"],
 
@@ -15,16 +15,16 @@
   },
 
   "prod": {
-    "serverUrl": "",
-    "databaseURI": "",
-    "gcpProjectId": "",
-    "gcpProjectNumber": "",
+    "serverUrl": "http://pandasphere.herokuapp.com",
+    "databaseURI": "mongodb://localhost:27017/mydb",
+    "gcpProjectId": "pandasphere-1359",
+    "gcpProjectNumber": "278310872489",
     "gcpKeyFile": ""
   },
 
   "qa": {
-    "serverUrl": "",
-    "databaseURI": "",
+    "serverUrl": "http://pandasphere.herokuapp.com",
+    "databaseURI": "mongodb://localhost:27017/mydb",
     "gcpProjectId": "",
     "gcpProjectNumber": "",
     "gcpKeyFile": ""

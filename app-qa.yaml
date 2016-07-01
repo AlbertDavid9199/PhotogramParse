@@ -1,0 +1,17 @@
+# Used to configure Google App Engine
+# See https://cloud.google.com/appengine/docs/flexible/nodejs/configuring-your-app-with-app-yaml
+# .gitignore contains the entry server/app.yaml so when this file is copied it isn't comitted to source control
+runtime: nodejs
+vm: true
+threadsafe: true
+
+skip_files:
+  - ^(.*/)?.*/node_modules/.*$
+
+#memory_gb: 0.6
+
+manual_scaling:
+  instances: 1
+
+env_variables:
+  PORT: 8080

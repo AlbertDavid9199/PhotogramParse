@@ -1,5 +1,5 @@
 {
-  "appName": "Phandasphere",
+  "appName": "Panda",
   "appId": "PandaID",
   "masterKey": "PandaMasterKey",
   "parseMount": "/parse/",
@@ -25,8 +25,8 @@
   "qa": {
     "serverUrl": "http://pandasphere.herokuapp.com",
     "databaseURI": "mongodb://localhost:27017/mydb",
-    "gcpProjectId": "",
-    "gcpProjectNumber": "",
+    "gcpProjectId": "pandasphere-1359",
+    "gcpProjectNumber": "278310872489",
     "gcpKeyFile": ""
   },
 

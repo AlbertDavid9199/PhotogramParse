@@ -1,13 +1,13 @@
 /**
  * Module for sending email which uses the Mailgun implementation
  */
-var config = require('../config.js')
-var Mailgun = require('mailgun-js')
+var config = require('./config.js')
+var Mailgun = require('mailgun')
 
 var exports = module.exports = {}
 
 var configured = config.mailgun_domain && config.mailgun_key && config.mailgun_from
-configured = false
+
 if(configured)
 	Mailgun.initialize(config.mailgun_domain, config.mailgun_key)
 else

@@ -9,10 +9,11 @@ var DeletedUser = Parse.Object.extend("DeletedUser")
 
 var _ = require('underscore')
 
-var config = require('../config.js')
+var config = require('./config.js')
 require('./linkedin.js')
-//require('./migrations.js')
-//require('./jobs.js')
+// require('./migrations.js')
+// require('./jobs.js')
+require('./app.js')
 require('./admin.js')
 require('./video.js')
 
@@ -33,8 +34,6 @@ var MINIMUM_AGE = 18
 // so when the user selects the maximum value, its all ages above that too, i.e. 55+
 var MAX_AGE_PLUS = 55
 
-const masterKey = {useMasterKey:true}
-
 Parse.Cloud.beforeSave(Parse.User, function(request, response) {
 	var user = request.object
 
@@ -43,8 +42,13 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
 		user.set('premium', false)
 		user.set('credits', 0)
 		user.set('matches', [])
-	}
-	else if(!request.master) {
+
+		var acl = new Parse.ACL()
+		acl.setPublicReadAccess(false)
+		acl.setPublicWriteAccess(false)
+		user.setACL(acl)
+
+	} else if(!request.master) {
 		if(user.dirty('admin'))
 			return response.error('You cant set the admin flag')
 		if(user.dirty('premium'))
@@ -52,6 +56,7 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
 		if(user.dirty('credits'))
 			return response.error('You cant set the credits')
 	}
+
 
 	// Extract the facebook user id to its own column, if it has changed
 	var fbId = user.get('fbId')
@@ -68,42 +73,29 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
 // to see the profile link when first saved
 Parse.Cloud.afterSave(Parse.User, function(request) {
 	var user = request.object
-	var userId = user.id
 
-	var acl = user.getACL()
-	if(acl && acl.getPublicReadAccess()) {
-		console.log('Updating ACL on user ' + userId)
-		acl.setPublicReadAccess(false)
-		acl.setPublicWriteAccess(false)
-		acl.setWriteAccess(userId, true)
-		acl.setReadAccess(userId, true)
-		user.setACL(acl)
-		user.save(null, masterKey).then(null, error => console.error('Error updating acl for user ' + user.id + ' ' + error))
-	}
-})
-
-
-Parse.Cloud.define('LinkProfileToUser', function(request, response) {
-	var user = request.user
 	var profile = user.get('profile')
-	if(profile) {
-		console.log('Profile already exists on user ' + user.id)
-		return response.success(profile.toJSON())
-	}
 
-	// Profile field init is done in Profile.beforeSave
-	new Profile().save({uid:user.id}, masterKey).then(
-		profile => {
-			console.log('linking profile to ' + user.id)
-			user.save({profile: profile}, masterKey).then(
-				success => response.success(profile.toJSON()),
-				error => response.error(error)
-			)
-		},
-		error => response.error(error)
-	)
+	// When creating a new User link the profile object
+	if(!profile) {
+		profile = new Profile()
+		profile.set('uid', user.id) // Need to set this here for Profile.beforeSave
+		Parse.Cloud.useMasterKey()
+		return profile.save().then(function(profile) {
+			user.set('profile', profile)
+			return user.save().then(function() {}, function(error) {
+				console.error('error saving profile ' + profile.id + ' to user ' + user.id + ' ' + JSON.stringify(error))
+			})
+		}, function(error) {
+			console.error('Error creating profile for user ' + user.id + ' ' + JSON.stringify(error))
+		})
+	}
 })
 
+Parse.Cloud.define('PostLogin', function(request, response) {
+	// return 'UPDATE_REQUIRED' when you have switched over to the self-hosted parse server
+	response.success("")
+})
 
 Parse.Cloud.beforeSave(Profile, function(request, response) {
 	var profile = request.object
@@ -141,15 +133,7 @@ Parse.Cloud.beforeSave(Profile, function(request, response) {
 			response.error('Could not determine user Id for new profile')
 			return
 		}
-		console.log('creating new profile for user ', userId)
-		var acl = new Parse.ACL(userId)
-		acl.setPublicWriteAccess(false)
-		acl.setPublicReadAccess(false)
-		acl.setWriteAccess(userId, true)
-		acl.setReadAccess(userId, true)
-		profile.setACL(acl)
 
-		profile.set('uid', userId)
 		profile.set('photos', [])
 		profile.set('enabled', false)
 		profile.set('gps', true)
@@ -158,6 +142,13 @@ Parse.Cloud.beforeSave(Profile, function(request, response) {
 		profile.set('distanceType', 'km')
 		profile.set('notifyMatch', true)
 		profile.set('notifyMessage', true)
+
+		var acl = new Parse.ACL(userId)
+		acl.setPublicWriteAccess(false)
+		acl.setPublicReadAccess(false)
+		acl.setWriteAccess(userId, true)
+		acl.setReadAccess(userId, true)
+		profile.setACL(acl)
 
 	} else { // Saving an existing Profile
 
@@ -184,6 +175,37 @@ Parse.Cloud.beforeSave(Profile, function(request, response) {
 			if(!profile.has('girls'))
 				profile.set('girls', gender !== 'F')
 		}
+
+		/*
+		//This is only required if you have users with an older version using old data model with photo1, photo2, photo3
+
+		var photo1 = profile.get('photo1')
+		var photo2 = profile.get('photo2')
+		var photo3 = profile.get('photo3')
+
+		// If doing an update of the old model, then update the new model
+		if(request.photo1 || request.photo2 || request.photo3) {
+			var photos = []
+			// check !== null in case the user is deleting it
+			if(photo1 || (request.photo1 && request.photo1 !== null))
+				photos.push(photo1)
+			if(photo2 || (request.photo2 && request.photo2 !== null))
+				photos.push(photo2)
+			if(photo3 || (request.photo3 && request.photo3 !== null))
+				photos.push(photo3)
+		}
+
+		// If doing an update of the new model, then update the old model
+		if(request.photos) {
+			var i
+			for(i = 0; i < 3; i++) {
+				if(i < request.photos.length)
+					profile.set('photo' + (i+1), request.photos[i])
+				else
+					profile.set('photo' + (i+1), null)
+			}
+		}
+		*/
 	}
 
 	response.success()
@@ -193,6 +215,7 @@ Parse.Cloud.beforeSave(Profile, function(request, response) {
 Parse.Cloud.define('SetPremium', function(request, response) {
 
 	// Use the master key to update the restricted premium property
+	Parse.Cloud.useMasterKey()
 	var premium = request.params.premium
 	var product = request.params.product
 
@@ -201,11 +224,13 @@ Parse.Cloud.define('SetPremium', function(request, response) {
 	if(premium && _.isUndefined(product))
 		return response.error('Parameter "product" must be provided if settings premium to true')
 
-	// TODO server-side verification https://github.com/voltrue2/in-app-purchase
+	// TODO server-side verification
+	// Use http://reeceipt.fovea.cc/ when its ready or make https://github.com/voltrue2/in-app-purchase Parse friendly
 
 	var user = request.user
-	user.save({premium: premium}).then(function() {
-		response.success(null)
+	user.set('premium', premium)
+	user.save().then(function() {
+		response.success()
 	}, function(error) {
 		response.error(error)
 	})
@@ -218,102 +243,96 @@ Parse.Cloud.define('SetPremium', function(request, response) {
 
 
 Parse.Cloud.define("CopyFacebookProfile", function(request, response) {
+	// Use the master key to update the potentially restricted properties
+	Parse.Cloud.useMasterKey()
+	var user = request.user
 	var profileUpdates = {photos:[]}
 	var profile
 
-	new Parse.Query(Parse.User).get(request.user.id, masterKey).then(
-		user => {
-			if (Parse.FacebookUtils.isLinked(user)) {
+	if (Parse.FacebookUtils.isLinked(user)) {
 
-				var fbAuth = user.get('authData').facebook
+		var fbAuth = user.get('authData').facebook
 
-				var picUrl = "https://graph.facebook.com/" + fbAuth.id + "/picture?width=500&height=500"
-				var imageRequest = Parse.Cloud.httpRequest({
-					url: picUrl,
-					followRedirects: true
-				})
+		var picUrl = "https://graph.facebook.com/" + fbAuth.id + "/picture?width=500&height=500"
+		var imageRequest = Parse.Cloud.httpRequest({
+			url: picUrl,
+			followRedirects: true
+		})
 
-				var profile = user.get('profile')
-				if(!profile) {
-					response.error('User does not have a profile')
-					return
+		var profile = user.get('profile')
+		if(!profile) {
+			response.error('User does not have a profile')
+			return
+		}
+		var profileRequest = new Parse.Query(Profile).get(profile.id)
+
+		var fbLikesRequest = Parse.Cloud.httpRequest({url: 'https://graph.facebook.com/me/likes?limit=999&access_token=' + fbAuth.access_token})
+		var fbMeRequest = Parse.Cloud.httpRequest({url: 'https://graph.facebook.com/me?fields=birthday,first_name,last_name,name,gender,email,hometown&access_token=' + fbAuth.access_token})
+
+		Parse.Promise.when(fbLikesRequest, fbMeRequest)
+			.then(function(fbLikesResponse, fbMeResponse) {
+
+				var fbLikesData = fbLikesResponse.data.data
+				var fbMe = fbMeResponse.data
+				console.log(JSON.stringify(fbMe))
+				var i
+				var fbLikes = []
+
+				for(i=0; i < fbLikesData.length; i++)
+					fbLikes.push(fbLikesData[i].id)
+
+				profileUpdates.fbLikes = fbLikes
+
+				var errorCode = _copyFacebookProfile(fbMe, profileUpdates)
+				if(errorCode) {
+					return Parse.Promise.error({code:errorCode})
 				}
-				var profileRequest = new Parse.Query(Profile).get(profile.id, masterKey)
 
-				var fbLikesRequest = Parse.Cloud.httpRequest({url: 'https://graph.facebook.com/me/likes?limit=999&access_token=' + fbAuth.access_token})
-				var fbMeRequest = Parse.Cloud.httpRequest({url: 'https://graph.facebook.com/me?fields=birthday,first_name,last_name,name,gender,email,hometown&access_token=' + fbAuth.access_token})
-
-				Parse.Promise.when(fbLikesRequest, fbMeRequest)
-					.then(function(fbLikesResponse, fbMeResponse) {
-
-						var fbLikesData = fbLikesResponse.data.data
-						var fbMe = fbMeResponse.data
-						var i
-						var fbLikes = []
-
-						for(i=0; i < fbLikesData.length; i++)
-							fbLikes.push(fbLikesData[i].id)
-
-						profileUpdates.fbLikes = fbLikes
-
-						var errorCode = _copyFacebookProfile(fbMe, profileUpdates)
-						if(errorCode) {
-							return Parse.Promise.error({code:errorCode})
-						}
-
-						if(fbMe.email) {
-							// Save this asynchronously
-							// TODO log any errors - should be an error if email exists
-							if(!user.getEmail())
-								user.save({'email':fbMe.email})
-							else
-								user.save({'fbEmail':fbMe.email})
-						}
-
-						// Wait for the profile image request to return
-						return imageRequest
-
-					}).then(function(httpResponse) {
-					var file = new Parse.File("profile.png", {base64: httpResponse.buffer.toString('base64', 0, httpResponse.buffer.length)})
-					return file.save()
-
-				}).then(function(file) {
-					// See http://stackoverflow.com/questions/25297590/saving-javascript-object-that-has-an-array-of-parse-files-causes-converting-cir
-					profileUpdates.photos.push({name: file.name, url: file.url(), __type: 'File'})
-
-					return profileRequest
-
-				}).then(function(result) {
-					profile = result
-					// Use the master key to update the potentially restricted properties like birthdate, name
-					return profile.save(profileUpdates, masterKey)
-
-				}).then(function(profile) {
-					response.success(profile)
-				}, function(error) {
-					console.error('Facebook copy error' + JSON.stringify(error))
-					if(profile) {
-						// Try to save the error onto the profile. Ignore success/error
-						var errorMsg = error.code ? error.code : error
-						profile.save({error:errorMsg})
-					}
-					if(error.code)
-						response.error(error)
+				if(fbMe.email) {
+					// Save this asynchronously
+					// TODO log any errors - should be an error if email exists
+					if(!user.getEmail())
+						user.save({'email':fbMe.email})
 					else
-						response.error({code:'FB_PROFILE_COPY_FAILED', message:'Error getting Facebook profile', source:error})
-				})
+						user.save({'fbEmail':fbMe.email})
+				}
 
-			} else {
-				response.error('Account is not linked to Facebook')
-			}
-		}
-		, error => {
-			console.log('Error loading user to copy facebook profile', error)
-			response.error(error)
-		}
-	)
+				// Wait for the profile image request to return
+				return imageRequest
 
+			}).then(function(httpResponse) {
+				console.log('httpResponse ' + httpResponse)
+				var file = new Parse.File("profile.png", {base64: httpResponse.buffer.toString('base64', 0, httpResponse.buffer.length)})
+				return file.save()
 
+			}).then(function(file) {
+				// See http://stackoverflow.com/questions/25297590/saving-javascript-object-that-has-an-array-of-parse-files-causes-converting-cir
+				profileUpdates.photos.push({name: file.name, url: file.url(), __type: 'File'})
+
+				return profileRequest
+
+			}).then(function(result) {
+				profile = result
+				return profile.save(profileUpdates)
+
+			}).then(function(profile) {
+				response.success(profile)
+			}, function(error) {
+				console.error('Facebook copy error' + JSON.stringify(error))
+				if(profile) {
+					// Try to save the error onto the profile. Ignore success/error
+					var errorMsg = error.code ? error.code : error
+					profile.save({error:errorMsg})
+				}
+				if(error.code)
+					response.error(error)
+				else
+					response.error({code:'FB_PROFILE_COPY_FAILED', message:'Error getting Facebook profile', source:error})
+			})
+
+	} else {
+		response.error('Account is not linked to Facebook')
+	}
 
 })
 
@@ -379,19 +398,24 @@ function _copyFacebookProfile(fbMe, profileUpdates) {
 Parse.Cloud.define("GetProfileForMatch", function(request, response) {
 	var user = request.user
 	var matchId = request.params.matchId
+	Parse.Cloud.useMasterKey()
 
-	if(!matchId)
-		return response.error('matchId param not provided')
+	if(!matchId) {
+		response.error('matchId param not provided')
+		return
+	}
 
 	// Check the requested profile is a mutual match before returning it
-	if(user.get('matches').indexOf(matchId) < 0)
-		return response.error('Match id:' + matchId + ' is not a mutual match for user ' + user.id)
+	if(user.get('matches').indexOf(matchId) < 0) {
+		response.error('Match id:' + matchId + ' is not a mutual match for user ' + user.id)
+		return
+	}
 
 	var matchQuery = new Parse.Query(Match)
 	matchQuery.include('profile1')
 	matchQuery.include('profile2')
 
-	matchQuery.get(matchId, masterKey).then(function(match) {
+	matchQuery.get(matchId).then(function(match) {
 		if(!match)
 			throw 'Match does not exist with id ' + match
 
@@ -421,6 +445,9 @@ Parse.Cloud.define("GetProfileForMatch", function(request, response) {
 Parse.Cloud.define("GetMutualMatches", function(request, response) {
 	var user = request.user
 	var matchIds = request.params.matchIds
+	// We need to use the master key to load the other users profile, so we will need to check uid1 and uid2 are valid
+	Parse.Cloud.useMasterKey()
+
 	if(!matchIds) {
 		response.error('matchIds param not provided')
 		return
@@ -433,29 +460,33 @@ Parse.Cloud.define("GetMutualMatches", function(request, response) {
 	matchesQuery.limit(1000)
 	matchesQuery.containedIn('objectId', matchIds)
 
-	matchesQuery.find(masterKey).then(function(matches) {
+	matchesQuery.find().then(function(matches) {
 		var result = []
 		var profile1, profile2
 
 		_.each(matches, function(match) {
-			var matchJSON = match.toJSON()
 			// Clear the current users profile, no need to return that over the network, and clean the Profile
 			if(match.get('uid1') === user.id) {
 				profile2 = match.get('profile2')
-				if(!profile2) {console.error('profile2 not set on match ', match.id);return}
-				matchJSON.otherProfile = _processProfile(profile2)
+				if(!profile2) return
+				match.set('profile2', _processProfile(profile2))
 				match.unset('profile1')
 			}
 			else if (match.get('uid2') === user.id) {
 				profile1 = match.get('profile1')
-				if(!profile1) {console.error('profile1 not set on match ', match.id);return}
-				matchJSON.otherProfile = _processProfile(profile1)
+				if(!profile1) return
+				match.set('profile1', _processProfile(profile1))
 				match.unset('profile2')
 			} else {
 				console.error('Attempted to load match ' + match.id + ' which did not belong to user ' + user.id)
 				return
 			}
-			result.push(matchJSON)
+
+			// See http://stackoverflow.com/questions/24959798/parse-com-cloud-function-manually-modify-object-fields-before-sending-to-clien
+			match.dirty = function() { return false }
+
+			result.push(match)
+
 		})
 		response.success(result)
 	}).then(null, function(error) {
@@ -463,36 +494,83 @@ Parse.Cloud.define("GetMutualMatches", function(request, response) {
 	})
 })
 
+///**
+// * Load a mutual match and its profile. e.g. when get a match push notification
+// */
+//Parse.Cloud.define("GetMutualMatch", function(request, response) {
+//	var user = request.user
+//	var matchId = request.params.matchId
+//	// We need to use the master key to load the other users profile, so we need to check uid1 and uid2
+//	Parse.Cloud.useMasterKey()
+//	if(!matchId) {
+//		response.error('matchId param not provided')
+//		return
+//	}
+//
+//	var matchQuery = new Parse.Query(Match)
+//	matchQuery.include('profile1')
+//	matchQuery.include('profile2')
+//
+//	matchQuery.get(matchId).then(function(match) {
+//		if(!match)
+//			throw 'Match does not exist with id ' + match
+//
+//		if(match.get('state') !== 'M')
+//			throw 'Match ' + matchId + ' is not a mutual match'
+//
+//		// Clear the current users profile, no need to return that over the network
+//		if(match.get('uid1') === user.id)
+//			match.unset('profile1')
+//		else if(match.get('uid2') === user.id)
+//			match.set('profile2', null)
+//		else {
+//			response.error('Invalid match, not for this user')
+//			return
+//		}
+//		// TODO convert profile birthdate to age
+//
+//		response.success(match)
+//
+//	}).then(null, function(error) {
+//		response.error(error)
+//	})
+//})
+
 
 /**
  * Process another users profile for security etc before returning it from a search or mutual match
  */
 function _processProfile(profile) {
 
-	profile = profile.toJSON()
+	var birthdate = profile.get('birthdate')
+	if(birthdate)
+		profile.set('age', _calculateAge(birthdate))
 
-	if(profile.birthdate) {
-		profile.age = _calculateAge(profile.birthdate)
-		delete profile.birthdate
-	}
+	// Comment out this line if you are in the process of migrating to the new data model
+	profile.unset('birthdate')
 
-	delete profile.notifyMatch
-	delete profile.notifyMessage
-	delete profile.ageFrom
-	delete profile.ageTo
-	delete profile.guys
-	delete profile.girls
-	delete profile.distance
-	delete profile.distanceType
-	delete profile.error
+	// http://stackoverflow.com/questions/25297590/saving-javascript-object-that-has-an-array-of-parse-files-causes-converting-cir
+	var photos = profile.get('photos')
+	photos = _.map(photos, function(file) {
+		return {name: file.name, url: file.url(), __type: 'File'}
+	})
+	profile.set('photos', photos)
+
+	// Remove other fields we don't need on the client
+	profile.unset('notifyMatch')
+	profile.unset('notifyMessage')
+	profile.unset('ageFrom')
+	profile.unset('ageTo')
+	profile.unset('guys')
+	profile.unset('girls')
+	profile.unset('distance')
+	profile.unset('distanceType')
+	profile.unset('error')
+
+	// See http://stackoverflow.com/questions/24959798/parse-com-cloud-function-manually-modify-object-fields-before-sending-to-clien
+	profile.dirty = function() { return false }
 
 	return profile
-	// // http://stackoverflow.com/questions/25297590/saving-javascript-object-that-has-an-array-of-parse-files-causes-converting-cir
-	// var photos = profile.get('photos')
-	// photos = _.map(photos, function(file) {
-	// 	return {name: file.name, url: file.url(), __type: 'File'}
-	// })
-	// profile.set('photos', photos)
 }
 
 /**
@@ -501,14 +579,7 @@ function _processProfile(profile) {
  */
 function _calculateAge(birthday) {
 	if(!birthday) return 0 // avoid exception from dodgy data
-	var birthdayTime
-	if(birthday.iso)
-		birthdayTime = new Date(birthday.iso).getTime()
-	else if(_.isDate(birthday))
-		birthdayTime = birthday.getTime()
-	else
-		console.error('_calculateAge cant get birthday time from ', birthday)
-	var ageDifMs = Date.now() - birthdayTime
+	var ageDifMs = Date.now() - birthday.getTime()
 	var ageDate = new Date(ageDifMs) // miliseconds from epoch
 	return Math.abs(ageDate.getUTCFullYear() - 1970)
 }
@@ -520,8 +591,10 @@ function _calculateAge(birthday) {
  */
 Parse.Cloud.define("GetMatches", function(request, response) {
 	// We need to use the master key to load the other users profiles
-	var userId = request.user.id
+	Parse.Cloud.useMasterKey()
+
 	var profile = request.params
+	console.log('profile: ' + JSON.stringify(profile))
 
 	var profileQuery = new Parse.Query("Profile")
 
@@ -555,64 +628,90 @@ Parse.Cloud.define("GetMatches", function(request, response) {
 	// This can be determined if the u1action/u2action property has already been set
 
 	var alreadyMatched1Query = new Parse.Query("Match")
-	alreadyMatched1Query.equalTo("uid1", userId)
+	alreadyMatched1Query.equalTo("uid1", Parse.User.current().id)
 	alreadyMatched1Query.exists("u1action") // where we have an action
 	alreadyMatched1Query.select("uid2") // then return the other user id
-	alreadyMatched1Query.limit(10000)
+	alreadyMatched1Query.limit(1000)
 
 	var alreadyMatched2Query = new Parse.Query("Match")
-	alreadyMatched2Query.equalTo("uid2", userId)
+	alreadyMatched2Query.equalTo("uid2", Parse.User.current().id)
 	alreadyMatched2Query.exists("u2action")
 	alreadyMatched2Query.select("uid1")
-	alreadyMatched2Query.limit(10000)
+	alreadyMatched2Query.limit(1000)
+
+	//alreadyMatched1Query.find().then(function(result){
+	//	console.log('alreadyMatched1Query ' + JSON.stringify(result))
+	//})
+	//alreadyMatched2Query.find().then(function(result){
+	//	console.log('alreadyMatched2Query ' + JSON.stringify(result))
+	//})
 
 	var alreadyMatchedQuery = Parse.Query.or(alreadyMatched1Query, alreadyMatched2Query)
-	alreadyMatchedQuery.limit(10000)
+	alreadyMatchedQuery.limit(1000)
 
-	return alreadyMatchedQuery.find(masterKey).then(function(results) {
+	return alreadyMatchedQuery.find().then(function(results) {
 		//console.log('or query ' + JSON.stringify(results))
 		var ids = []
 		var length = results.length
 		var userId = request.user.id
 		for(var i=0;i<length;i++) {
 			var row = results[i]
+			//console.log(i + ': ' + JSON.stringify(row))
 			var uid1 = row.get('uid1')
 			if(uid1 != userId)
 				ids.push(uid1)
 			else
 				ids.push(row.get('uid2'))
 		}
+		console.log('ids ' + JSON.stringify(ids))
 		return ids
 	}).then(function(ids){
-		ids.push(userId)
+		ids.push(Parse.User.current().id)
 		profileQuery.notContainedIn('uid', ids)
-		//profileQuery.notEqualTo("uid", userId)
+		//profileQuery.notEqualTo("uid", Parse.User.current().id)
 		profileQuery.descending("updatedAt")
 		profileQuery.limit(25)
-		return profileQuery.find(masterKey)
+		return profileQuery.find()
 	}).then(function(result){
+		console.log('search result: ' + JSON.stringify(result))
 		result = _.map(result, _processProfile)
 		response.success(result)
 	}, function(error) {
 		console.log(JSON.stringify(error))
 		response.error(error)
 	})
+
+	//var alreadyMatchedQuery = Parse.Query.or(alreadyMatched1Query, alreadyMatched1Query);
+	//profileQuery.doesNotMatchKeyInQuery("uid", "uid2", alreadyMatched1Query)
+	//profileQuery.doesNotMatchKeyInQuery("uid", "uid1", alreadyMatched2Query)
+    //
+	//profileQuery.notEqualTo("uid", Parse.User.current().id)
+	//profileQuery.descending("updatedAt")
+	//profileQuery.limit(25)
+    //
+	//return profileQuery.find().then(function(result){
+	//	response.success(result)
+	//}, function(error) {
+	//	response.error(error)
+	//})
 });
 
 
 
 Parse.Cloud.define("ProcessMatch", function(request, response) {
+	Parse.Cloud.useMasterKey()
 	var userId = request.user.id
 	var otherUserId = request.params.otherUserId
 	var liked = request.params.liked
 
-	if(otherUserId == null)
-		return response.error('otherUserId was not provided')
-
-	if(liked == null)
-		return response.error('liked was not provided')
-
-	console.log('params ', userId, otherUserId, liked)
+	if(otherUserId == null) {
+		response.error('otherUserId was not provided')
+		return
+	}
+	if(liked == null) {
+		response.error('liked was not provided')
+		return
+	}
 
 	var match
 	var mutualMatch = false
@@ -669,7 +768,7 @@ Parse.Cloud.define("ProcessMatch", function(request, response) {
 			match.set('state', 'M') // M for mutual like
 
 		return match
-	}, masterKey).then(function(result) {
+	}).then(function(result) {
 		if(match.get('state') != 'M') return null
 
 		mutualMatch = true
@@ -677,11 +776,11 @@ Parse.Cloud.define("ProcessMatch", function(request, response) {
 		//console.log('loading profiles for mutual match')
 		var profileQuery = new Parse.Query(Profile)
 		profileQuery.containedIn("uid", [uid1, uid2])
-		return profileQuery.find(masterKey)
+		return profileQuery.find()
 	}).then(function(profiles){
 		if(profiles != null) { // i.e. mutualMatch = true
 			if(profiles.length != 2) {
-				return Parse.Promise.error('error - loading profiles for uids ' + uid1 + ' and ' + uid2 + ' returned ' + profiles.length + ' results')
+				console.error('error - loading profiles for uids ' + uid1 + ' and ' + uid2 + ' returned ' + profiles.length + ' results')
 			} else {
 				if(profiles[0].get('uid') == uid1) {
 					match.set('profile1', profiles[0])
@@ -693,43 +792,44 @@ Parse.Cloud.define("ProcessMatch", function(request, response) {
 			}
 		}
 		// now we can save the match object
-		return match.save(null, masterKey)
+		return match.save()
 
 	}).then(function(match) {
 		console.log('saved match ' + JSON.stringify(match))
-		return mutualMatch ? new Parse.Query(Parse.User).get(otherUserId, masterKey) : null
+		return mutualMatch ? new Parse.Query(Parse.User).get(otherUserId) : null
 
 	}).then(function(otherUser) {
 		if(!mutualMatch || !otherUser)
 			return null
+
 		// Add the match id to both users 'matches' property
 		request.user.addUnique('matches', match.id)
 		otherUser.addUnique('matches', match.id)
-		return Parse.Object.saveAll([request.user, otherUser], masterKey)
+		Parse.Cloud.useMasterKey() // might need this to save the other user
+		return Parse.Object.saveAll([request.user, otherUser])
 
 	}).then(function(result) {
 		if(!mutualMatch) {
-			response.success(null)
+			response.success()
 			return
 		}
-		response.success(match.toJSON())
-		// // Send the push notification to the other user
-		// Parse.Push.send({
-		// 	channels: ["user_" + otherUserId],
-		// 	data: {
-		// 		alert: "You have a new match",
-		// 		badge: "Increment",
-		// 		sound: "cheering.caf",
-		// 		title: "New Match!",
-		//
-		// 		type: "match",
-		// 		matchId: match.id
-		// 	}
-		// }, {
-		//  useMasterKey: true,
-		// 	success: function() { response.success(match) },
-		// 	error: function(error) { response.error(error) }
-		// })
+
+		// Send the push notification to the other user
+		Parse.Push.send({
+			channels: ["user_" + otherUserId],
+			data: {
+				alert: "You have a new match",
+				badge: "Increment",
+				sound: "cheering.caf",
+				title: "New Match!",
+
+				type: "match",
+				matchId: match.id
+			}
+		}, {
+			success: function() { response.success(match) },
+			error: function(error) { response.error(error) }
+		})
 
 	}, function(error) {
 		response.error(error)
@@ -798,22 +898,26 @@ Parse.Cloud.define('GetProfilesWhoLikeMe', function(request, response) {
 
 
 Parse.Cloud.define("RemoveMatch", function(request, response) {
+	Parse.Cloud.useMasterKey()
 	var matchId = request.params.matchId
 	var userId = request.user.id
 	var otherUserId
 	var otherUser
+	console.log('matchid ' + matchId)
+	console.log('userid ' + userId)
 
-	new Parse.Query(Match).get(matchId, masterKey).then(function(match) {
+	new Parse.Query(Match).get(matchId).then(function(match) {
 		match.set('state', 'D') // Deleted
 
 		var uid1 = match.get('uid1')
-		otherUser = Parse.User.createWithoutData(uid1 === userId ? match.get('uid2') : uid1)
+		otherUser = new Parse.User()
+		otherUser.id = uid1 === userId ? match.get('uid2') : uid1
 		otherUser.remove('matches', matchId)
 		request.user.remove('matches', matchId)
 
-		return Parse.Promise.when(match.save(null, masterKey), otherUser.save(null, masterKey), request.user.save(null, masterKey), notifyRemoveMatch(match, [otherUserId]))
+		return Parse.Promise.when(match.save(), otherUser.save(), request.user.save(), notifyRemoveMatch(match, [otherUserId]))
 	}).then(function() {
-		response.success(null)
+		response.success()
 	}, function(error){
 		response.error(error)
 	})
@@ -821,32 +925,49 @@ Parse.Cloud.define("RemoveMatch", function(request, response) {
 
 
 
+//
+//Parse.Cloud.beforeSave('ChatMessage', function(request, response) {
+//
+//	// Validate the to/from uid's
+//
+//	var message = request.object
+//	var query = new Parse.Query(Match)
+//	query.get(message.get('match').id, {
+//		success: function(match) {
+//			var sendToUid
+//			if(match.get('uid1') == message.get('sender'))
+//				sendToUid = match.get('uid2')
+//			else
+//				sendToUid = match.get('uid1')
+//		},
+//		error: function(object, error) {
+//			console.log('error loading match ' + error)
+//		}
+//	});
+//})
+
+
 /**
  * Set the sender and members properties, and check the message is allowed to be sent
  */
 Parse.Cloud.beforeSave('ChatMessage', function(request, response) {
-	var message = request.object
-	var userId = request.user.id
-
 	// If re-saved from a migration job then don't resend push notifications
-	if(request.master && message.id)
-		return response.success(null)
+	if(request.master) {
+		response.success()
+		return
+	}
 
-
-	var match = message.get('match')
-	if(!match) return response.error('match must be set on the ChatMessage before saving')
-
-	var matchId = match.id
-	if(!matchId) return response.error('message.match.id was null/undefined')
+    var message = request.object
+	var userId = request.user.id
+	var matchId = message.get('match').id
 
 	message.set('sender', request.user.id)
 
-	new Parse.Query(Match).get(matchId, masterKey).then(function(match) {
+	new Parse.Query(Match).get(matchId).then(function(match) {
 		if(!match) {
 			response.error('Match object does not exist')
 			return
 		}
-		message.set('match', match)
 
 		var uid1 = match.get('uid1')
 		var uid2 = match.get('uid2')
@@ -924,7 +1045,7 @@ Parse.Cloud.afterSave('ChatMessage', function(request) {
 				createdAt: message.createdAt.getTime(),
 			}
 		}
-	}, masterKey)
+	})
 })
 
 
@@ -949,16 +1070,17 @@ Parse.Cloud.afterSave("ContactMessage", function(request) {
  * But if we do delete one through the admin dashboad then do the appropriate cleanup
  */
 Parse.Cloud.afterDelete("Match", function(request) {
+	Parse.Cloud.useMasterKey()
 	var match = request.object
 
 	if(match.get('state') === 'M') {
 		var query = new Parse.Query(Parse.User)
 		query.containedIn('objectId', [match.get('uid1'), match.get('uid2')])
-		query.find(masterKey).then(function(users) {
+		query.find().then(function(users) {
 			_.each(users, function(user) {
 				user.remove('matches', match.id)
 			})
-			Parse.Object.saveAll(users, masterKey)
+			Parse.Object.saveAll(users)
 		})
 		notifyRemoveMatch(match, [match.get('uid1'), match.get('uid2')])
 	}
@@ -966,8 +1088,8 @@ Parse.Cloud.afterDelete("Match", function(request) {
 	var query = new Parse.Query("ChatMessage");
 
 	query.equalTo("match", match);
-	query.find(masterKey).then(function(messages) {
-		return Parse.Object.destroyAll(messages, masterKey)
+	query.find().then(function(messages) {
+		return Parse.Object.destroyAll(messages, {useMasterKey: true});
 	}).then(function(success) {
 		// The related comments were deleted
 	}, function(error) {
@@ -977,21 +1099,22 @@ Parse.Cloud.afterDelete("Match", function(request) {
 
 
 Parse.Cloud.define('DeleteUnmatched', function(request, response) {
+	Parse.Cloud.useMasterKey()
 	var user = request.user
 	var userId = user.id
 
 	var matches1Query = new Parse.Query("Match")
 	matches1Query.equalTo("uid1", userId)
 	matches1Query.containedIn('state', ['P','R'])
-	matches1Query.limit(10000)
+	matches1Query.limit(1000)
 
 	var matches2Query = new Parse.Query("Match")
 	matches2Query.equalTo("uid2", userId)
 	matches2Query.containedIn('state', ['P','R'])
-	matches2Query.limit(10000)
+	matches2Query.limit(1000)
 
 	var count = 0
-	Parse.Query.or(matches1Query, matches2Query).limit(10000).find().then(function(matches){
+	Parse.Query.or(matches1Query, matches2Query).limit(1000).find().then(function(matches){
 		count = matches.length
 		return Parse.Object.destroyAll(matches)
 	}).then(function(success) {
@@ -1004,18 +1127,20 @@ Parse.Cloud.define('DeleteUnmatched', function(request, response) {
 
 /** Delete the current user account */
 Parse.Cloud.define('DeleteAccount', function(request, response) {
+	Parse.Cloud.useMasterKey()
 	deleteUser(response, request.user)
 })
 
 /** Delete the account for a particular user. Admin only function */
 Parse.Cloud.define('DeleteUser', function(request, response) {
+	Parse.Cloud.useMasterKey()
 	var user = request.user
-	if(!user.get('admin'))
+	if(!user.admin)
 		return response.error('Must be an admin to delete a user')
 	var userId = user.params.userId
 	if(!userId)
 		return response.error('userId parameter must be provided')
-	new Parse.Query(Parse.User).get(userId, masterKey).then(function(user) {
+	new Parse.Query(Parse.User).get(userId).then(function(user) {
 		deleteUser(response, user)
 	}, function(error) {
 		response.error(error)
@@ -1037,21 +1162,20 @@ function deleteUser(response, user) {
 				matchId: matchId
 			}
 		}, {
-			useMasterKey: true,
 			success: function () {},
 			error: function (error) { console.error('Error sending push notification for unmatching a deleted account. ' + JSON.stringify(error)) }
 		})
 	}
 
 	user.set('status', 'deleting')
-	return user.save(null, masterKey).then(function(success) {
+	return user.save().then(function(success) {
 
 		var profile = user.get('profile')
 		// TODO should delete photo files
 		if(profile) {
-			profile.fetch(masterKey).then(function(profile) {
+			profile.fetch().then(function(profile) {
 				try {deletedUser.set('profile', JSON.stringify(profile))} catch(e) { console.error('couldnt stringify profile of deleted user') }
-				profile.destroy(masterKey)
+				profile.destroy()
 			}, function(error) {
 				// don't return an error if the profile doesnt exist in the database
 			})
@@ -1081,7 +1205,7 @@ function deleteUser(response, user) {
 			otherUser.remove('matches', match.id)
 
 			sendRemoveMatchPushNotification(match.id, otherUserId)
-			return Parse.Promise.when(match.save(null, masterKey), otherUser.save(null, masterKey))
+			return Parse.Promise.when(match.save(), otherUser.save())
 		})
 	}).then(function(success) {
 		console.log('updated all matches and users')
@@ -1089,10 +1213,10 @@ function deleteUser(response, user) {
 		try {deletedUser.set('user', JSON.stringify(user))} catch(e) { console.error('couldnt stringify user of deleted user') }
 		deletedUser.set('uid', userId)
 		console.log('creating deleted user and destroying user...')
-		return Parse.Promise.when(deletedUser.save(null, masterKey), user.destroy(masterKey))
+		return Parse.Promise.when(deletedUser.save(), user.destroy())
 
 	}).then(function(success) {
-		response.success(null)
+		response.success()
 	}, function(error) {
 		response.error(error)
 	})
@@ -1106,47 +1230,31 @@ function deleteUser(response, user) {
  */
 Parse.Cloud.define("DeleteAllData", function(request, response) {
 
-	// if( TODO isProduction ) {
-	// 	response.error('Cannot delete all data in production')
-	// 	return
-	// }
+	if(Parse.applicationId !== config.integrationAppId) {
+		response.error('Cannot delete data. Application Id does not match integration app Id')
+		return
+	}
+	Parse.Cloud.useMasterKey()
 
-	return new Parse.Query(Profile).limit(1000).find(masterKey)
-		.then(function(profiles) {return Parse.Object.destroyAll(profiles, masterKey)})
+	return new Parse.Query(Profile).limit(1000)
+		.find(function(profiles) {return Parse.Object.destroyAll(profiles)})
 
-		.then(function() {return new Parse.Query(Match).limit(1000).find(masterKey)})
-		.then(function(matches) {return Parse.Object.destroyAll(matches, masterKey)})
+		.then(function() {return new Parse.Query(Match).limit(1000).find()})
+		.then(function(matches) {return Parse.Object.destroyAll(matches)})
 
-		.then(function() {return new Parse.Query(ChatMessage).limit(1000).find(masterKey)})
-		.then(function(messages) {return Parse.Object.destroyAll(messages, masterKey)})
+		.then(function() {return new Parse.Query(ChatMessage).limit(1000).find()})
+		.then(function(messages) {return Parse.Object.destroyAll(messages)})
 
-		.then(function() {return new Parse.Query(Report).limit(1000).find(masterKey)})
-		.then(function(reports) {return Parse.Object.destroyAll(reports, masterKey)})
+		.then(function() {return new Parse.Query(Report).limit(1000).find()})
+		.then(function(reports) {return Parse.Object.destroyAll(reports)})
 
-		.then(function() {return new Parse.Query(Parse.User).limit(1000).find(masterKey)})
-		.then(function(users) {return Parse.Object.destroyAll(users, masterKey)})
+		.then(function() {return new Parse.Query(Parse.User).limit(1000).find()})
+		.then(function(users) {return Parse.Object.destroyAll(users)})
 
 		.then(function() { response.success('Database truncated') },
 		function(error) { response.error(error) })
 })
 
-
-/**
- * Sends a push notification to the current user. Useful for testing if push notifications are configured properly
- */
-Parse.Cloud.define('TestPushNotification', function(request, response) {
-	console.log('sending push to channel ' + 'user_' + request.user.id)
-	Parse.Push.send({
-		channels: ['user_' + request.user.id],
-		data: {
-			alert: 'Test push notification',
-			// title: 'Test push notification',
-		}
-	}, masterKey).then(
-		success => response.success(null),
-		error => response.error(error)
-	)
-})
 
 
 
@@ -1164,7 +1272,7 @@ function notifyRemoveMatch(match, uids) {
 			type: 'removeMatch',
 			matchId: match.id
 		}
-	}, masterKey)
+	})
 }
 
 //var adminQuery = new Parse.Query(Parse.User)

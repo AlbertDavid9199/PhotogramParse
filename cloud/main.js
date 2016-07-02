@@ -72,6 +72,7 @@ Parse.Cloud.beforeSave(Parse.User, function(request, response) {
 // user object is returned, so it would need to be refreshed by the client
 // to see the profile link when first saved
 Parse.Cloud.afterSave(Parse.User, function(request) {
+	Parse.Cloud.useMasterKey()
 	var user = request.object
 
 	var profile = user.get('profile')
@@ -80,7 +81,6 @@ Parse.Cloud.afterSave(Parse.User, function(request) {
 	if(!profile) {
 		profile = new Profile()
 		profile.set('uid', user.id) // Need to set this here for Profile.beforeSave
-		Parse.Cloud.useMasterKey()
 		return profile.save().then(function(profile) {
 			user.set('profile', profile)
 			return user.save().then(function() {}, function(error) {

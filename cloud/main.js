@@ -444,6 +444,7 @@ Parse.Cloud.define("GetProfileForMatch", function(request, response) {
  */
 Parse.Cloud.define("GetMutualMatches", function(request, response) {
 	var user = request.user
+	var token = user.getSessionToken()
 	var matchIds = request.params.matchIds
 	// We need to use the master key to load the other users profile, so we will need to check uid1 and uid2 are valid
 	Parse.Cloud.useMasterKey()
@@ -460,7 +461,7 @@ Parse.Cloud.define("GetMutualMatches", function(request, response) {
 	matchesQuery.limit(1000)
 	matchesQuery.containedIn('objectId', matchIds)
 
-	matchesQuery.find().then(function(matches) {
+	matchesQuery.find({ sessionToken: token }).then(function(matches) {
 		var result = []
 		var profile1, profile2
 
@@ -628,13 +629,13 @@ Parse.Cloud.define("GetMatches", function(request, response) {
 	// This can be determined if the u1action/u2action property has already been set
 
 	var alreadyMatched1Query = new Parse.Query("Match")
-	alreadyMatched1Query.equalTo("uid1", Parse.User.current().id)
+	alreadyMatched1Query.equalTo("uid1", request.user.id)
 	alreadyMatched1Query.exists("u1action") // where we have an action
 	alreadyMatched1Query.select("uid2") // then return the other user id
 	alreadyMatched1Query.limit(1000)
 
 	var alreadyMatched2Query = new Parse.Query("Match")
-	alreadyMatched2Query.equalTo("uid2", Parse.User.current().id)
+	alreadyMatched2Query.equalTo("uid2", request.user.id)
 	alreadyMatched2Query.exists("u2action")
 	alreadyMatched2Query.select("uid1")
 	alreadyMatched2Query.limit(1000)
@@ -649,7 +650,7 @@ Parse.Cloud.define("GetMatches", function(request, response) {
 	var alreadyMatchedQuery = Parse.Query.or(alreadyMatched1Query, alreadyMatched2Query)
 	alreadyMatchedQuery.limit(1000)
 
-	return alreadyMatchedQuery.find().then(function(results) {
+	return alreadyMatchedQuery.find({ sessionToken: request.user.getSessionToken() }).then(function(results) {
 		//console.log('or query ' + JSON.stringify(results))
 		var ids = []
 		var length = results.length
@@ -666,12 +667,12 @@ Parse.Cloud.define("GetMatches", function(request, response) {
 		console.log('ids ' + JSON.stringify(ids))
 		return ids
 	}).then(function(ids){
-		ids.push(Parse.User.current().id)
+		ids.push(request.user.id)
 		profileQuery.notContainedIn('uid', ids)
-		//profileQuery.notEqualTo("uid", Parse.User.current().id)
+		//profileQuery.notEqualTo("uid", request.user.id)
 		profileQuery.descending("updatedAt")
 		profileQuery.limit(25)
-		return profileQuery.find()
+		return profileQuery.find({ sessionToken: request.user.getSessionToken() })
 	}).then(function(result){
 		console.log('search result: ' + JSON.stringify(result))
 		result = _.map(result, _processProfile)
@@ -685,7 +686,7 @@ Parse.Cloud.define("GetMatches", function(request, response) {
 	//profileQuery.doesNotMatchKeyInQuery("uid", "uid2", alreadyMatched1Query)
 	//profileQuery.doesNotMatchKeyInQuery("uid", "uid1", alreadyMatched2Query)
     //
-	//profileQuery.notEqualTo("uid", Parse.User.current().id)
+	//profileQuery.notEqualTo("uid", request.user.id)
 	//profileQuery.descending("updatedAt")
 	//profileQuery.limit(25)
     //
@@ -776,7 +777,7 @@ Parse.Cloud.define("ProcessMatch", function(request, response) {
 		//console.log('loading profiles for mutual match')
 		var profileQuery = new Parse.Query(Profile)
 		profileQuery.containedIn("uid", [uid1, uid2])
-		return profileQuery.find()
+		return profileQuery.find({ sessionToken: request.user.getSessionToken() })
 	}).then(function(profiles){
 		if(profiles != null) { // i.e. mutualMatch = true
 			if(profiles.length != 2) {
@@ -863,7 +864,7 @@ Parse.Cloud.define('GetProfilesWhoLikeMe', function(request, response) {
 
 	var matchQuery = Parse.Query.or(baseMatchQuery('1', '2'), baseMatchQuery('2', '1'))
 	matchQuery.limit(maxResults)
-	matchQuery.find().then(function(matches) {
+	matchQuery.find({ sessionToken: request.user.getSessionToken() }).then(function(matches) {
 		console.log('found ' + matches.length + ' matches objects who like me')
 		// The match objects are not a mutual match so they wont have the profile reference set
 		// So load the User objects including the profile
@@ -881,7 +882,7 @@ Parse.Cloud.define('GetProfilesWhoLikeMe', function(request, response) {
 		userQuery.include('profile')
 		userQuery.containedIn('objectId', userIds)
 		userQuery.limit(maxResults)
-		return userQuery.find()
+		return userQuery.find({ sessionToken: request.user.getSessionToken() })
 	}).then(function(users) {
 		var profiles = []
 		_.each(users, function(user) {
@@ -1076,7 +1077,7 @@ Parse.Cloud.afterDelete("Match", function(request) {
 	if(match.get('state') === 'M') {
 		var query = new Parse.Query(Parse.User)
 		query.containedIn('objectId', [match.get('uid1'), match.get('uid2')])
-		query.find().then(function(users) {
+		query.find({ sessionToken: request.user.getSessionToken() }).then(function(users) {
 			_.each(users, function(user) {
 				user.remove('matches', match.id)
 			})
@@ -1088,7 +1089,7 @@ Parse.Cloud.afterDelete("Match", function(request) {
 	var query = new Parse.Query("ChatMessage");
 
 	query.equalTo("match", match);
-	query.find().then(function(messages) {
+	query.find({ sessionToken: request.user.getSessionToken() }).then(function(messages) {
 		return Parse.Object.destroyAll(messages, {useMasterKey: true});
 	}).then(function(success) {
 		// The related comments were deleted
@@ -1114,7 +1115,7 @@ Parse.Cloud.define('DeleteUnmatched', function(request, response) {
 	matches2Query.limit(1000)
 
 	var count = 0
-	Parse.Query.or(matches1Query, matches2Query).limit(1000).find().then(function(matches){
+	Parse.Query.or(matches1Query, matches2Query).limit(1000).find({ sessionToken: request.user.getSessionToken() }).then(function(matches){
 		count = matches.length
 		return Parse.Object.destroyAll(matches)
 	}).then(function(success) {
@@ -1239,16 +1240,16 @@ Parse.Cloud.define("DeleteAllData", function(request, response) {
 	return new Parse.Query(Profile).limit(1000)
 		.find(function(profiles) {return Parse.Object.destroyAll(profiles)})
 
-		.then(function() {return new Parse.Query(Match).limit(1000).find()})
+		.then(function() {return new Parse.Query(Match).limit(1000).find({ sessionToken: request.user.getSessionToken() })})
 		.then(function(matches) {return Parse.Object.destroyAll(matches)})
 
-		.then(function() {return new Parse.Query(ChatMessage).limit(1000).find()})
+		.then(function() {return new Parse.Query(ChatMessage).limit(1000).find({ sessionToken: request.user.getSessionToken() })})
 		.then(function(messages) {return Parse.Object.destroyAll(messages)})
 
-		.then(function() {return new Parse.Query(Report).limit(1000).find()})
+		.then(function() {return new Parse.Query(Report).limit(1000).find({ sessionToken: request.user.getSessionToken() })})
 		.then(function(reports) {return Parse.Object.destroyAll(reports)})
 
-		.then(function() {return new Parse.Query(Parse.User).limit(1000).find()})
+		.then(function() {return new Parse.Query(Parse.User).limit(1000).find({ sessionToken: request.user.getSessionToken() })})
 		.then(function(users) {return Parse.Object.destroyAll(users)})
 
 		.then(function() { response.success('Database truncated') },

@@ -14,9 +14,9 @@ if (!databaseUri) {
 var api = new ParseServer({
   databaseURI: databaseUri || 'mongodb://localhost:27017/dev',
   cloud: process.env.CLOUD_CODE_MAIN || __dirname + '/cloud/main.js',
-  appId: process.env.APP_ID || 'cLBJgvxXrvAApWG2pfFEBVg0Nm7LALY9Zw8kIBp5',
-  masterKey: process.env.MASTER_KEY || 'dWLbDpdUf4gMqfmOY4a4sll2LYdjkFZVorPQMBWE', //Add your master key here. Keep it secret!
-  serverURL: process.env.SERVER_URL || 'https://clonederdev-clbjgv-1555.herokuapp.com/parse',  // Don't forget to change to https if needed
+  appId: process.env.APP_ID || 'PandaID',
+  masterKey: process.env.MASTER_KEY || 'PandaMasterKey', //Add your master key here. Keep it secret!
+  serverURL: process.env.SERVER_URL || 'http://pandasphereapp.herokuapp.com/parse',  // Don't forget to change to https if needed
   liveQuery: {
     classNames: ["Posts", "Comments"] // List of classes to support for query subscriptions
   }
